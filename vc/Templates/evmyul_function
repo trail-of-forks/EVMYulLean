@@ -17,9 +17,6 @@ theorem \<statement_name>_correct
     exec fuel (.Block \<statement_name>.body) codeOverride s₀ = .ok s₉ →
     Spec_\<statement_name> fuel codeOverride s₀ s₉ := by
   intro h
-  exact function_exec_implies_fuelSpec
-    (AFunc := AFunc_\<statement_name> codeOverride)
-    \<statement_name>_bodyExact_implies_afunc
-    h
+  exact \<statement_name>_vc_implies_spec (\<statement_name>_exec_implies_vc h)
 
 end \<namespace>

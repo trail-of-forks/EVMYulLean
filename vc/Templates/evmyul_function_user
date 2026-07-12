@@ -27,10 +27,6 @@ theorem \<statement_name>_bodyExact_implies_afunc
 theorem \<statement_name>_vc_implies_spec {fuel : Nat} {codeOverride : Option YulContract} {s₀ s₉ : State} :
     VC_\<statement_name> fuel codeOverride s₀ s₉ →
     Spec_\<statement_name> fuel codeOverride s₀ s₉ := by
-  intro h
-  exact function_exec_implies_fuelSpec
-    (AFunc := AFunc_\<statement_name> codeOverride)
-    \<statement_name>_bodyExact_implies_afunc
-    h
+  sorry
 
 end \<namespace>
