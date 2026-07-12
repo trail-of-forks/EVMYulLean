@@ -68,6 +68,8 @@ lean_lib «Conform»
 @[default_target]
 lean_lib «EvmYul»
 
+lean_lib «GeneratedEvmYul»
+
 @[test_driver]
 lean_exe «conform» where
   root := `Conform.Main

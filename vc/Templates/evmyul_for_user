@@ -1,0 +1,36 @@
+import EvmYul.Yul.Interpreter
+import EvmYul.Yul.ReasoningPrinciple
+import EvmYul.Yul.YulNotation
+
+\<imports>
+
+namespace \<contract>
+
+open EvmYul
+open EvmYul.Yul
+open EvmYul.Yul.Ast
+open EvmYul.Yul.Notation
+open EvmYul.Yul.ReasoningPrinciple
+
+def AFor_\<statement_name> (codeOverride : Option YulContract) (fuel : Nat) (s₀ s₉ : State) : Prop :=
+  sorry
+
+def Spec_\<statement_name> (fuel : Nat) (codeOverride : Option YulContract) (s₀ s₉ : State) : Prop :=
+  FuelSpec (AFor_\<statement_name> codeOverride) fuel s₀ s₉
+
+theorem \<statement_name>_loopExact_implies_afor
+    {fuel : Nat} {codeOverride : Option YulContract} {s₀ s₉ : State} :
+    LoopExact \<statement_name>_cond \<statement_name>_post \<statement_name>_body codeOverride fuel s₀ s₉ →
+    AFor_\<statement_name> codeOverride fuel s₀ s₉ := by
+  sorry
+
+theorem \<statement_name>_vc_implies_spec {fuel : Nat} {codeOverride : Option YulContract} {s₀ s₉ : State} :
+    VC_\<statement_name> fuel codeOverride s₀ s₉ →
+    Spec_\<statement_name> fuel codeOverride s₀ s₉ := by
+  intro h
+  exact for_exec_implies_fuelSpec
+    (AFor := AFor_\<statement_name> codeOverride)
+    \<statement_name>_loopExact_implies_afor
+    h
+
+end \<contract>

@@ -1,0 +1,30 @@
+import EvmYul.Yul.Interpreter
+import EvmYul.Yul.ExecLemmas
+import EvmYul.Yul.YulNotation
+
+\<imports>
+
+namespace \<namespace>
+
+open EvmYul
+open EvmYul.Yul
+open EvmYul.Yul.Ast
+open EvmYul.Yul.Notation
+
+def \<statement_name> : FunctionDefinition := <f
+    function \<statement_name>(\<args_sep_comma>)\<return_modifiers>\<return_value>
+
+\<func_body>
+
+>
+
+def VC_\<statement_name> (fuel : Nat) (codeOverride : Option YulContract) (s₀ s₉ : State) : Prop :=
+\<vc_prop>
+
+theorem \<statement_name>_exec_implies_vc
+    {fuel : Nat} {codeOverride : Option YulContract} {s₀ s₉ : State} :
+    exec fuel (.Block \<statement_name>.body) codeOverride s₀ = .ok s₉ →
+    VC_\<statement_name> fuel codeOverride s₀ s₉ := by
+\<vc_proof>
+
+end \<namespace>

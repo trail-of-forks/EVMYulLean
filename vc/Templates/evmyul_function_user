@@ -1,0 +1,36 @@
+import EvmYul.Yul.Interpreter
+import EvmYul.Yul.ReasoningPrinciple
+import EvmYul.Yul.YulNotation
+
+\<imports>
+
+namespace \<namespace>
+
+open EvmYul
+open EvmYul.Yul
+open EvmYul.Yul.Ast
+open EvmYul.Yul.Notation
+open EvmYul.Yul.ReasoningPrinciple
+
+def AFunc_\<statement_name> (codeOverride : Option YulContract) (fuel : Nat) (s₀ s₉ : State) : Prop :=
+  sorry
+
+def Spec_\<statement_name> (fuel : Nat) (codeOverride : Option YulContract) (s₀ s₉ : State) : Prop :=
+  FuelSpec (AFunc_\<statement_name> codeOverride) fuel s₀ s₉
+
+theorem \<statement_name>_bodyExact_implies_afunc
+    {fuel : Nat} {codeOverride : Option YulContract} {s₀ s₉ : State} :
+    FunctionBodyExact \<statement_name> codeOverride fuel s₀ s₉ →
+    AFunc_\<statement_name> codeOverride fuel s₀ s₉ := by
+  sorry
+
+theorem \<statement_name>_vc_implies_spec {fuel : Nat} {codeOverride : Option YulContract} {s₀ s₉ : State} :
+    VC_\<statement_name> fuel codeOverride s₀ s₉ →
+    Spec_\<statement_name> fuel codeOverride s₀ s₉ := by
+  intro h
+  exact function_exec_implies_fuelSpec
+    (AFunc := AFunc_\<statement_name> codeOverride)
+    \<statement_name>_bodyExact_implies_afunc
+    h
+
+end \<namespace>

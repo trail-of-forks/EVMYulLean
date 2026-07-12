@@ -1,0 +1,74 @@
+import EvmYul.Yul.Interpreter
+import EvmYul.Yul.ExecLemmas
+import EvmYul.Yul.ReasoningPrinciple
+import EvmYul.Yul.YulNotation
+
+\<imports>
+
+namespace \<contract>
+
+open EvmYul
+open EvmYul.Yul
+open EvmYul.Yul.Ast
+open EvmYul.Yul.Notation
+open EvmYul.Yul.ReasoningPrinciple
+
+def \<statement_name>_cond : Expr := <<
+\<code_cond>
+>>
+
+def \<statement_name>_post : List Stmt := <ss
+\<code_post>
+>
+
+def \<statement_name>_body : List Stmt := <ss
+\<code_body>
+>
+
+def \<statement_name> : Stmt := <s
+\<code>
+>
+
+def VC_\<statement_name>_cond
+    (fuel : Nat) (codeOverride : Option YulContract) (s₀ : State)
+    (s₁ : State) (cond : Ast.Literal) : Prop :=
+  eval fuel \<statement_name>_cond codeOverride s₀ = .ok (s₁, cond)
+
+theorem \<statement_name>_cond_exec_implies_vc
+    {fuel : Nat} {codeOverride : Option YulContract} {s₀ s₁ : State}
+    {cond : Ast.Literal} :
+    eval fuel \<statement_name>_cond codeOverride s₀ = .ok (s₁, cond) →
+    VC_\<statement_name>_cond fuel codeOverride s₀ s₁ cond := by
+  intro h
+  exact h
+
+def VC_\<statement_name>_post
+    (fuel : Nat) (codeOverride : Option YulContract) (s₀ s₉ : State) : Prop :=
+\<vc_post_prop>
+
+theorem \<statement_name>_post_exec_implies_vc
+    {fuel : Nat} {codeOverride : Option YulContract} {s₀ s₉ : State} :
+    exec fuel (.Block \<statement_name>_post) codeOverride s₀ = .ok s₉ →
+    VC_\<statement_name>_post fuel codeOverride s₀ s₉ := by
+\<vc_post_proof>
+
+def VC_\<statement_name>_body
+    (fuel : Nat) (codeOverride : Option YulContract) (s₀ s₉ : State) : Prop :=
+\<vc_body_prop>
+
+theorem \<statement_name>_body_exec_implies_vc
+    {fuel : Nat} {codeOverride : Option YulContract} {s₀ s₉ : State} :
+    exec fuel (.Block \<statement_name>_body) codeOverride s₀ = .ok s₉ →
+    VC_\<statement_name>_body fuel codeOverride s₀ s₉ := by
+\<vc_body_proof>
+
+def VC_\<statement_name> (fuel : Nat) (codeOverride : Option YulContract) (s₀ s₉ : State) : Prop :=
+\<vc_prop>
+
+theorem \<statement_name>_exec_implies_vc
+    {fuel : Nat} {codeOverride : Option YulContract} {s₀ s₉ : State} :
+    exec fuel \<statement_name> codeOverride s₀ = .ok s₉ →
+    VC_\<statement_name> fuel codeOverride s₀ s₉ := by
+\<vc_proof>
+
+end \<contract>
