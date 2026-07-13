@@ -254,6 +254,68 @@ def eq (a b : UInt256) := fromBool (a = b)
 def isZero (a : UInt256) :=
   fromBool (eq0 a)
 
+@[ext]
+theorem ext {a b : UInt256} (h : a.val = b.val) : a = b := by
+  cases a
+  cases b
+  cases h
+  rfl
+
+@[simp]
+theorem add_val (a b : UInt256) : (UInt256.add a b).val = a.val + b.val := by
+  rfl
+
+@[simp]
+theorem sub_val (a b : UInt256) : (UInt256.sub a b).val = a.val - b.val := by
+  rfl
+
+@[simp]
+theorem mul_val (a b : UInt256) : (UInt256.mul a b).val = a.val * b.val := by
+  rfl
+
+@[simp]
+theorem add_zero (a : UInt256) : UInt256.add a (UInt256.ofNat 0) = a := by
+  apply UInt256.ext
+  simp only [UInt256.add]
+  rw [show (UInt256.ofNat 0).val = (0 : Fin UInt256.size) by rfl]
+  exact _root_.add_zero a.val
+
+@[simp]
+theorem zero_add (a : UInt256) : UInt256.add (UInt256.ofNat 0) a = a := by
+  apply UInt256.ext
+  simp only [UInt256.add]
+  rw [show (UInt256.ofNat 0).val = (0 : Fin UInt256.size) by rfl]
+  exact _root_.zero_add a.val
+
+@[simp]
+theorem one_ne_zero : UInt256.ofNat 1 ≠ UInt256.ofNat 0 := by
+  decide
+
+@[simp]
+theorem mul_zero (a : UInt256) : UInt256.mul a (UInt256.ofNat 0) = UInt256.ofNat 0 := by
+  apply UInt256.ext
+  simp only [UInt256.mul]
+  rw [show (UInt256.ofNat 0).val = (0 : Fin UInt256.size) by rfl]
+  simp
+
+@[simp]
+theorem zero_mul (a : UInt256) : UInt256.mul (UInt256.ofNat 0) a = UInt256.ofNat 0 := by
+  apply UInt256.ext
+  simp only [UInt256.mul]
+  rw [show (UInt256.ofNat 0).val = (0 : Fin UInt256.size) by rfl]
+  simp
+
+theorem eq_ne_zero_iff {a b : UInt256} :
+    UInt256.eq a b ≠ UInt256.ofNat 0 ↔ a = b := by
+  unfold UInt256.eq fromBool Bool.toUInt256
+  by_cases h : a = b
+  · simp [h]
+  · simp [h]
+
+theorem eq_ne_zero {a b : UInt256} :
+    UInt256.eq a b ≠ UInt256.ofNat 0 → a = b := by
+  exact eq_ne_zero_iff.mp
+
 end UInt256
 
 -- | Convert from a list of little-endian bytes to a natural number.

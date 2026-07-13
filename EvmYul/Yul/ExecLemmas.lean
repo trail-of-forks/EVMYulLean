@@ -31,6 +31,99 @@ theorem getElem_eq_lookup (s : State) (id : Identifier) (h : id ∈ s.store) :
 def lookupVar (s : State) (id : Identifier) : Literal :=
   s[id]!
 
+theorem lookupVar_ok_eq_lookup!
+    (sharedState : EvmYul.SharedState .Yul) (store : VarStore) (id : Identifier) :
+    lookupVar (State.Ok sharedState store) id =
+      State.lookup! id (State.Ok sharedState store) := by
+  by_cases hmem : id ∈ store
+  · simp [lookupVar, GetElem?.getElem!, decidableGetElem?, State.store,
+      State.instGetElemIdentifierLiteralMemVarStoreStore, State.lookup!, hmem]
+  · simp [lookupVar, GetElem?.getElem!, decidableGetElem?, State.store,
+      State.instGetElemIdentifierLiteralMemVarStoreStore, State.lookup!, hmem,
+      Finmap.lookup_eq_none.mpr hmem, outOfBounds_eq_default]
+
+@[simp]
+theorem lookupVar_ok_sharedState_irrelevant
+    (sharedState sharedState2 : EvmYul.SharedState .Yul) (store : VarStore)
+    (id : Identifier) :
+    lookupVar (State.Ok sharedState store) id =
+      lookupVar (State.Ok sharedState2 store) id := by
+  rw [lookupVar_ok_eq_lookup!, lookupVar_ok_eq_lookup!]
+  rfl
+
+@[simp]
+theorem lookup!_ok_sharedState_irrelevant
+    (sharedState sharedState2 : EvmYul.SharedState .Yul) (store : VarStore)
+    (id : Identifier) :
+    State.lookup! id (State.Ok sharedState store) =
+      State.lookup! id (State.Ok sharedState2 store) := by
+  rfl
+
+@[simp]
+theorem getElem!_ok_sharedState_irrelevant
+    (sharedState sharedState2 : EvmYul.SharedState .Yul) (store : VarStore)
+    (id : Identifier) :
+    (State.Ok sharedState store)[id]! =
+      (State.Ok sharedState2 store)[id]! := by
+  exact lookupVar_ok_sharedState_irrelevant sharedState sharedState2 store id
+
+
+@[simp]
+theorem getElem!_finmap_insert_same_ok
+    (sharedState : EvmYul.SharedState .Yul) (store : VarStore)
+    (var : Identifier) (val : Literal) :
+    (State.Ok sharedState (Finmap.insert var val store))[var]! = val := by
+  have hmem : var ∈ Finmap.insert var val store := by
+    simp [Finmap.mem_insert]
+  simp [GetElem?.getElem!, decidableGetElem?, State.store,
+    State.instGetElemIdentifierLiteralMemVarStoreStore, hmem, State.lookup!, Finmap.lookup_insert]
+
+@[simp]
+theorem getElem!_finmap_insert_ne_ok
+    (sharedState : EvmYul.SharedState .Yul) (store : VarStore)
+    {var other : Identifier} (val : Literal) (h : other ≠ var) :
+    (State.Ok sharedState (Finmap.insert var val store))[other]! =
+      (State.Ok sharedState store)[other]! := by
+  by_cases hmem : other ∈ store
+  · have hmem_insert : other ∈ Finmap.insert var val store := by
+      simp [Finmap.mem_insert, h, hmem]
+    simp [GetElem?.getElem!, decidableGetElem?, State.store,
+      State.instGetElemIdentifierLiteralMemVarStoreStore, hmem, hmem_insert,
+      State.lookup!, Finmap.lookup_insert_of_ne store h]
+  · have hmem_insert : other ∉ Finmap.insert var val store := by
+      simp [Finmap.mem_insert, h, hmem]
+    simp [GetElem?.getElem!, decidableGetElem?, State.store, hmem, hmem_insert]
+
+@[simp]
+theorem lookupVar_insert_same_ok
+    (sharedState : EvmYul.SharedState .Yul) (store : VarStore)
+    (var : Identifier) (val : Literal) :
+    lookupVar ((State.Ok sharedState store).insert var val) var = val := by
+  simp [State.insert, lookupVar]
+
+@[simp]
+theorem lookupVar_finmap_insert_same_ok
+    (sharedState : EvmYul.SharedState .Yul) (store : VarStore)
+    (var : Identifier) (val : Literal) :
+    lookupVar (State.Ok sharedState (Finmap.insert var val store)) var = val := by
+  simp [lookupVar]
+
+@[simp]
+theorem lookupVar_insert_ne_ok
+    (sharedState : EvmYul.SharedState .Yul) (store : VarStore)
+    {var other : Identifier} (val : Literal) (h : other ≠ var) :
+    lookupVar ((State.Ok sharedState store).insert var val) other =
+      lookupVar (State.Ok sharedState store) other := by
+  simp [State.insert, lookupVar, h]
+
+@[simp]
+theorem lookupVar_finmap_insert_ne_ok
+    (sharedState : EvmYul.SharedState .Yul) (store : VarStore)
+    {var other : Identifier} (val : Literal) (h : other ≠ var) :
+    lookupVar (State.Ok sharedState (Finmap.insert var val store)) other =
+      lookupVar (State.Ok sharedState store) other := by
+  simp [lookupVar, h]
+
 @[simp]
 theorem eval_var_succ
     (fuel : Nat) (id : Identifier) (codeOverride : Option YulContract) (s : State) :

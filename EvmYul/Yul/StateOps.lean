@@ -43,6 +43,11 @@ def setBreak : Yul.State → Yul.State
   | Ok sharedState store => Checkpoint (.Break sharedState store)
   | s => s
 
+@[simp]
+theorem insert_setBreak (s : Yul.State) (var : Identifier) (val : Literal) :
+    (State.setBreak s).insert var val = State.setBreak s := by
+  cases s <;> simp [State.setBreak, State.insert]
+
 def setLeave : Yul.State → Yul.State
   | Ok sharedState store => Checkpoint (.Leave sharedState store)
   | s => s
@@ -100,6 +105,21 @@ def lookup! (var : Identifier) : Yul.State → Literal
   | Checkpoint (.Break _ store) => (store.lookup var).get!
   | Checkpoint (.Leave _ store) => (store.lookup var).get!
   | _ => ⟨0⟩
+
+@[simp]
+theorem lookup_insert_same_ok
+    (sharedState : EvmYul.SharedState .Yul) (store : VarStore)
+    (var : Identifier) (val : Literal) :
+    State.lookup! var ((State.Ok sharedState store).insert var val) = val := by
+  simp [State.insert, State.lookup!, Finmap.lookup_insert]
+
+@[simp]
+theorem lookup_insert_ne_ok
+    (sharedState : EvmYul.SharedState .Yul) (store : VarStore)
+    {var var' : Identifier} (val : Literal) (h : var' ≠ var) :
+    State.lookup! var' ((State.Ok sharedState store).insert var val) =
+      State.lookup! var' (State.Ok sharedState store) := by
+  simp [State.insert, State.lookup!, Finmap.lookup_insert_of_ne store h]
 
 -- ============================================================================
 --  STATE NOTATION

@@ -12,8 +12,11 @@ open EvmYul.Yul.Ast
 open EvmYul.Yul.Notation
 open EvmYul.Yul.ReasoningPrinciple
 
+\<resolutions>
+
 def AFor_\<statement_name> (codeOverride : Option YulContract) (fuel : Nat) (s₀ s₉ : State) : Prop :=
-  sorry
+  Resolutions_\<statement_name> codeOverride →
+    sorry
 
 def Spec_\<statement_name> (fuel : Nat) (codeOverride : Option YulContract) (s₀ s₉ : State) : Prop :=
   FuelSpec (AFor_\<statement_name> codeOverride) fuel s₀ s₉

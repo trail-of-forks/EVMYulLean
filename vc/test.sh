@@ -15,7 +15,11 @@ cd "$script_dir"
 stack run vc examples/peano.yul
 
 cd "$repo_root"
+grep -q 'def Resolutions_mulk' GeneratedEvmYul/peano/Peano/mulk_user.lean
+grep -q 'ResolvedFunction codeOverride s "addk"' GeneratedEvmYul/peano/Peano/mulk_user.lean
+grep -q 'Resolutions_mulk codeOverride →' GeneratedEvmYul/peano/Peano/mulk_user.lean
 lake build GeneratedEvmYul
+lake build EvmYul.Yul.InterpreterTests
 
 clean_generated
 

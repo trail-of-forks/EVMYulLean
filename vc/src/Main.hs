@@ -230,6 +230,11 @@ isEqVarLitBreakIf :: Stmt -> Bool
 isEqVarLitBreakIf (If (Call "eq" [Var _, Lit _]) [Break]) = True
 isEqVarLitBreakIf _ = False
 
+eqVarLitBreakIfCondFrom :: String -> Stmt -> Maybe String
+eqVarLitBreakIfCondFrom s (If (Call "eq" [Var ident, Lit lit]) [Break]) =
+  leanSimpleExprFrom s (Call "eq" [Var ident, Lit lit])
+eqVarLitBreakIfCondFrom _ _ = Nothing
+
 callAssignment :: Stmt -> Maybe (NE.NonEmpty Identifier, String, [Expr])
 callAssignment (LetInit ids (Call f args))
   | f `notElem` yulPrimOps = Just (ids, f, args)
@@ -261,10 +266,20 @@ symbolicStateAfter :: Stmt -> Maybe String
 symbolicStateAfter = symbolicStateAfterFrom "s₀"
 
 symbolicBlockStateAfter :: [Stmt] -> Maybe String
-symbolicBlockStateAfter = foldl step (Just "s₀")
+symbolicBlockStateAfter = symbolicBlockStateAfterFrom "s₀"
+
+symbolicBlockStateAfterFrom :: String -> [Stmt] -> Maybe String
+symbolicBlockStateAfterFrom = foldl step . Just
   where
     step Nothing _ = Nothing
     step (Just s) stmt = symbolicStateAfterFrom s stmt
+
+breakIfBlockStateAfter :: [Stmt] -> Maybe (String, String)
+breakIfBlockStateAfter [] = Nothing
+breakIfBlockStateAfter (stmt : stmts) = do
+  cond <- eqVarLitBreakIfCondFrom "s₀" stmt
+  sAfter <- symbolicBlockStateAfterFrom "s₀" stmts
+  pure (cond, sAfter)
 
 symbolicFuelDepth :: Stmt -> Int
 symbolicFuelDepth stmt
@@ -360,7 +375,72 @@ qualifiedFunctionNamespace topLevelContract contract =
   where
     baseContract = takeWhile (/= '.') contract
 
+resolutionAssumptionDef :: ContractName -> FileName -> Imports -> String
+resolutionAssumptionDef topLevelContract file imports =
+  "def Resolutions_" ++ file ++ " (codeOverride : Option YulContract) : Prop :=\n" ++
+    case clauses of
+      [] -> "  True\n"
+      _  -> intercalate " ∧\n" (map ("  " ++) clauses) ++ "\n"
+  where
+    topLevelCallees = ordNub
+      [ (callee, calleeContract)
+      | (callee, (calleeContract, True)) <- imports
+      ]
+    clauses =
+      [ "(∀ s, State.isOk s → ResolvedFunction codeOverride s " ++ leanString callee ++ " " ++
+          qualifiedFunctionNamespace topLevelContract calleeContract ++ "." ++ callee ++ ")"
+      | (callee, calleeContract) <- topLevelCallees
+      ]
+
 evmYulCallBlockVcPropAndProof :: ContractName -> ContractName -> FileName -> [Stmt] -> Maybe (String, String)
+evmYulCallBlockVcPropAndProof topLevelContract contract file [pref, callStmt] | Just cond <- eqVarLitBreakIfCondFrom "s₀" pref = do
+  (ids, f, args) <- callAssignment callStmt
+  leanArgs <- leanSimpleExprListFrom "s₀" args
+  leanArgExprs <- leanExprTermList args
+  let namespace = qualifiedFunctionNamespace topLevelContract contract
+      qualified name = namespace ++ "." ++ name
+      afunc = qualified ("AFunc_" ++ f)
+      func = qualified f
+      vars = leanIdentifierList ids
+      lowSimp = "simp [" ++ file ++ ", exec, evalArgs, evalTail, eval, evalPrimCall, reverse', cons', execPrimCall, primCall, lookupVar] at h"
+      breakProof =
+        fuelSplitLines 8 lowSimp
+          [ "cases s₀ <;> simpa [" ++ file ++ ", exec, evalArgs, evalTail, eval, evalPrimCall,"
+          , "    reverse', cons', execPrimCall, primCall, State.setBreak, hbreak] using h.symm"
+          ]
+      callProof =
+        fuelSplitLines 8 lowSimp $
+          [ "refine functionCallSummary_of_exec_block_prefix_let_call"
+          , "  (pref := <s " ++ src pref ++ " >)"
+          , "  (argExprs := " ++ leanArgExprs ++ ")"
+          , "  (argFuel := fuel.succ.succ.succ.succ.succ)"
+          , "  (s₀ := s₀)"
+          , "  (sPrefix := s₀)"
+          , "  (sCall := s₀)"
+          , "  ?_ hok hresolve ?_ ?_ ?_"
+          , "· simp [" ++ file ++ ", exec, evalArgs, evalTail, eval, evalPrimCall,"
+          , "    reverse', cons', execPrimCall, primCall, hfall]"
+          , "· intro _ _ hbody"
+          , "  exact " ++ qualified (f ++ "_bodyExact_implies_afunc") ++ " hbody"
+          , "· simp [evalArgs, evalTail, eval, reverse', cons', lookupVar]"
+          , "· simpa [" ++ file ++ "] using h"
+          ]
+  pure
+    ( "  (" ++ cond ++ " ≠ ⟨0⟩ → s₉ = 💔 (s₀)) ∧\n" ++
+      "  (" ++ cond ++ " = ⟨0⟩ →\n" ++
+      "    State.isOk s₀ →\n" ++
+      "    ResolvedFunction codeOverride (s₀) " ++ leanString f ++ " " ++ func ++ " →\n" ++
+      "    PureFunctionCallVC (" ++ afunc ++ " codeOverride) " ++ func ++ " " ++ leanArgs ++ " " ++ vars ++ " (s₀) s₉)"
+    , unlines $
+        [ "  intro h"
+        , "  constructor"
+        , "  · intro hbreak"
+        ] ++ map ("  " ++) breakProof ++
+        [ "  · intro hfall"
+        , "    intro hok"
+        , "    intro hresolve"
+        ] ++ map ("  " ++) callProof
+    )
 evmYulCallBlockVcPropAndProof topLevelContract contract file stmts = do
   (sCall, ids, f, args) <- symbolicPrefixAndCallAssignmentFrom "s₀" stmts
   leanArgs <- leanSimpleExprListFrom sCall args
@@ -400,18 +480,20 @@ evmYulCallBlockVcPropAndProof topLevelContract contract file stmts = do
                   , "  (s₀ := s₀)"
                   , "  (sPrefix := " ++ sCall ++ ")"
                   , "  (sCall := " ++ sCall ++ ")"
-                  , "  ?_ hresolve ?_ ?_ ?_"
+                  , "  ?_ ?_ hresolve ?_ ?_ ?_"
                   ] ++ prefixProof ++
+                  [ "· exact hok" ] ++
                   [ "· intro _ _ hbody"
                   , "  exact " ++ qualified (f ++ "_bodyExact_implies_afunc") ++ " hbody"
                   , "· simp [evalArgs, evalTail, eval, reverse', cons', lookupVar]"
                   , "· simpa [" ++ file ++ "] using h"
                   ]
-            pure $ unlines $ ["  intro h", "  intro hresolve"] ++ fuelSplitLines 8 lowSimp highLines
+            pure $ unlines $ ["  intro h", "  intro hok", "  intro hresolve"] ++ fuelSplitLines 8 lowSimp highLines
           _ -> Nothing
   pure
     ( case directProof of
         Just _ ->
+          "  State.isOk (" ++ sCall ++ ") →\n" ++
           "  ResolvedFunction codeOverride (" ++ sCall ++ ") " ++ leanString f ++ " " ++ func ++ " →\n" ++
           "  PureFunctionCallVC (" ++ afunc ++ " codeOverride) " ++ func ++ " " ++ leanArgs ++ " " ++ vars ++ " (" ++ sCall ++ ") s₉"
         Nothing ->
@@ -431,21 +513,44 @@ evmYulBlockVcPropAndProof topLevelContract contract file stmts =
   case evmYulCallBlockVcPropAndProof topLevelContract contract file stmts of
     Just result -> result
     Nothing ->
-      case symbolicBlockStateAfter stmts of
-        Just sAfter ->
-          ( "  s₉ = " ++ sAfter
-          , fuelSplitProof
-              (symbolicBlockFuelDepth stmts)
-              ("simp [" ++ file ++ ", exec, evalArgs, evalTail, eval, evalPrimCall, reverse', cons', execPrimCall, primCall, lookupVar] at h")
-              ("simpa [VC_" ++ file ++ ", " ++ file ++ ", lookupVar] using h.symm")
+      case breakIfBlockStateAfter stmts of
+        Just (cond, sAfter) ->
+          ( "  (" ++ cond ++ " ≠ ⟨0⟩ → s₉ = 💔 (s₀)) ∧\n" ++
+            "  (" ++ cond ++ " = ⟨0⟩ → s₉ = " ++ sAfter ++ ")"
+          , unlines $
+              [ "  intro h"
+              , "  constructor"
+              , "  · intro hbreak"
+              ] ++
+              map ("  " ++) (fuelSplitLines
+                (symbolicBlockFuelDepth stmts)
+                ("simp [" ++ file ++ ", exec, evalArgs, evalTail, eval, evalPrimCall, reverse', cons', execPrimCall, primCall, lookupVar] at h")
+                [ "simpa [" ++ file ++ ", exec, evalArgs, evalTail, eval, evalPrimCall,"
+                , "    reverse', cons', execPrimCall, primCall, hbreak] using h.symm"
+                ]) ++
+              [ "  · intro hfall"
+              ] ++
+              map ("  " ++) (fuelSplitLines
+                (symbolicBlockFuelDepth stmts)
+                ("simp [" ++ file ++ ", exec, evalArgs, evalTail, eval, evalPrimCall, reverse', cons', execPrimCall, primCall, lookupVar] at h")
+                [ "cases s₀ <;> simpa [VC_" ++ file ++ ", " ++ file ++ ", State.insert, hfall] using h.symm" ])
           )
         Nothing ->
-          ( "  exec fuel (.Block " ++ file ++ ") codeOverride s₀ = .ok s₉"
-          , unlines
-              [ "  intro h"
-              , "  exact h"
-              ]
-          )
+          case symbolicBlockStateAfter stmts of
+            Just sAfter ->
+              ( "  s₉ = " ++ sAfter
+              , fuelSplitProof
+                  (symbolicBlockFuelDepth stmts)
+                  ("simp [" ++ file ++ ", exec, evalArgs, evalTail, eval, evalPrimCall, reverse', cons', execPrimCall, primCall, lookupVar] at h")
+                  ("simpa [VC_" ++ file ++ ", " ++ file ++ ", lookupVar] using h.symm")
+              )
+            Nothing ->
+              ( "  exec fuel (.Block " ++ file ++ ") codeOverride s₀ = .ok s₉"
+              , unlines
+                  [ "  intro h"
+                  , "  exact h"
+                  ]
+              )
 
 fillInStatement :: ContractName -> ContractName -> FileName -> Imports -> Code -> String -> String -> String -> (String, String, String)
 fillInStatement topLevelContract contract file imports code gen user glue =
@@ -469,7 +574,8 @@ fillInStatement topLevelContract contract file imports code gen user glue =
             ("\\<vc_prop>",        vcProp),
             ("\\<vc_proof>",       vcProof),
             ("\\<tacs>",           tactics),
-            ("\\<opens>",          opens)
+            ("\\<opens>",          opens),
+            ("\\<resolutions>",    resolutionAssumptionDef topLevelContract file imports)
           ]
 
 fillInFor :: ContractName -> ContractName -> FileName -> Imports -> Code -> String -> String -> String -> (String, String, String)
@@ -510,7 +616,8 @@ fillInFor topLevelContract contract file imports stmt@(For _ c post body) gen us
             ("\\<tacs_post>",      tacsPost),
             ("\\<tacs_body>",      tacsBody),
             ("\\<tacs>",           tactics),
-            ("\\<opens>",          opens)
+            ("\\<opens>",          opens),
+            ("\\<resolutions>",    resolutionAssumptionDef topLevelContract file imports)
           ]
 
 fillInFor _ _ _ _ stmt _ _ _ = (
@@ -557,6 +664,7 @@ fillInFunction topLevelContract file imports (FuncDef _ contract fargs ret body)
             ("\\<namespace>",                     namespace),
             ("\\<fargs>",                         funcArgs),
             ("\\<opens>",                         opens),
+            ("\\<resolutions>",                    resolutionAssumptionDef topLevelContract file imports),
             ("\\<ret_vals>",                      retVals),
             ("\\<ret_vals_and_args>",             rValsAndArgs),
             ("\\<return_value_space>",            returnSpace)

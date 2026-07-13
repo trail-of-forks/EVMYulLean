@@ -12,6 +12,11 @@ def Spec (R : State → State → Prop) (s₀ s₉ : State) : Prop :=
 def FuelSpec (R : Nat → State → State → Prop) (fuel : Nat) (s₀ s₉ : State) : Prop :=
   R fuel s₀ s₉
 
+theorem spec_eq {P P' : State → State → Prop} {s₀ s₉ : State} :
+    (P s₀ s₉ → P' s₀ s₉) → Spec P s₀ s₉ → Spec P' s₀ s₉ := by
+  intro h hspec
+  exact h hspec
+
 def State.isOk : State → Prop
   | .Ok _ _ => True
   | _ => False
@@ -32,6 +37,13 @@ def State.isCheckpoint : State → Prop
   | .Checkpoint _ => True
   | _ => False
 
+def State.isOutOfFuel : State → Prop
+  | .OutOfFuel => True
+  | _ => False
+
+def isPure (s₀ s₁ : State) : Prop :=
+  s₀.sharedState = s₁.sharedState
+
 @[simp]
 theorem State.isOk_ok (sharedState : EvmYul.SharedState .Yul) (store : VarStore) :
     State.isOk (.Ok sharedState store) := by
@@ -44,6 +56,22 @@ theorem State.not_isOk_outOfFuel : ¬ State.isOk .OutOfFuel := by
 
 @[simp]
 theorem State.not_isOk_checkpoint (jump : Jump) : ¬ State.isOk (.Checkpoint jump) := by
+  intro h
+  cases h
+
+@[simp]
+theorem State.isOutOfFuel_outOfFuel : State.isOutOfFuel .OutOfFuel := by
+  trivial
+
+@[simp]
+theorem State.not_isOutOfFuel_ok (sharedState : EvmYul.SharedState .Yul) (store : VarStore) :
+    ¬ State.isOutOfFuel (.Ok sharedState store) := by
+  intro h
+  cases h
+
+@[simp]
+theorem State.not_isOutOfFuel_checkpoint (jump : Jump) :
+    ¬ State.isOutOfFuel (.Checkpoint jump) := by
   intro h
   cases h
 
@@ -61,6 +89,20 @@ theorem State.isContinue_continue (sharedState : EvmYul.SharedState .Yul) (store
 theorem State.isLeave_leave (sharedState : EvmYul.SharedState .Yul) (store : VarStore) :
     State.isLeave (.Checkpoint (.Leave sharedState store)) := by
   trivial
+
+@[simp]
+theorem isPure_rfl (s : State) : isPure s s := by
+  rfl
+
+theorem isPure_trans {s₀ s₁ s₂ : State} :
+    isPure s₀ s₁ → isPure s₁ s₂ → isPure s₀ s₂ := by
+  intro h₀ h₁
+  exact h₀.trans h₁
+
+@[simp]
+theorem isPure_insert (s : State) (var : Identifier) (val : Ast.Literal) :
+    isPure s (s.insert var val) := by
+  cases s <;> simp [isPure, State.insert, State.sharedState]
 
 def LoopExact
     (cond : Expr) (post body : List Stmt) (codeOverride : Option YulContract)
@@ -97,6 +139,298 @@ def PureFunctionCallVC
     (AFunc : Nat → State → State → Prop) (f : FunctionDefinition)
     (args : List Ast.Literal) (vars : List Identifier) (s₀ s₉ : State) : Prop :=
   FunctionCallSummary AFunc f args vars s₀ s₉
+
+def LoopConcrete
+    (ABody APost : State → State → Prop) (ACond : State → Ast.Literal)
+    (fuel : Nat) (s₀ s₉ : State) : Prop :=
+  match fuel with
+  | 0 => False
+  | 1 => False
+  | 2 => False
+  | fuel' + 3 =>
+      if ACond (👌 s₀) = ⟨0⟩ then
+        s₉ = (👌 s₀).overwrite? s₀
+      else
+        ∃ s₂,
+          Spec ABody (👌 s₀) s₂ ∧
+            match s₂ with
+            | .OutOfFuel => s₉ = s₂.overwrite? s₀
+            | .Checkpoint (.Break _ _) => s₉ = s₂.reviveJump.overwrite? s₀
+            | .Checkpoint (.Leave _ _) => s₉ = s₂.overwrite? s₀
+            | .Checkpoint (.Continue _ _) | .Ok _ _ =>
+                ∃ s₃ s₅,
+                  Spec APost (🧟 s₂) s₃ ∧
+                  Spec (LoopConcrete ABody APost ACond fuel') (s₃.overwrite? s₀) s₅ ∧
+                  s₉ = s₅.overwrite? s₀
+
+theorem loopConcrete_implies_spec
+    (ACond : State → Ast.Literal)
+    (APost ABody AFor : State → State → Prop)
+    {fuel : Nat} {s₀ s₉ : State}
+    (AZero :
+      ∀ {s₀ s₉ : State},
+        ACond (👌 s₀) = ⟨0⟩ →
+        s₉ = (👌 s₀).overwrite? s₀ →
+        AFor s₀ s₉)
+    (AOutOfFuel :
+      ∀ {s₀ : State},
+        ACond (👌 s₀) ≠ ⟨0⟩ →
+        ABody (👌 s₀) .OutOfFuel →
+        AFor s₀ (State.OutOfFuel.overwrite? s₀))
+    (ABreak :
+      ∀ {s₀ : State} {sharedState : EvmYul.SharedState .Yul} {store : VarStore},
+        ACond (👌 s₀) ≠ ⟨0⟩ →
+        ABody (👌 s₀) (.Checkpoint (.Break sharedState store)) →
+        AFor s₀ ((State.Checkpoint (.Break sharedState store)).reviveJump.overwrite? s₀))
+    (ALeave :
+      ∀ {s₀ : State} {sharedState : EvmYul.SharedState .Yul} {store : VarStore},
+        ACond (👌 s₀) ≠ ⟨0⟩ →
+        ABody (👌 s₀) (.Checkpoint (.Leave sharedState store)) →
+        AFor s₀ ((State.Checkpoint (.Leave sharedState store)).overwrite? s₀))
+    (AStepContinue :
+      ∀ {s₀ s₃ s₅ : State} {sharedState : EvmYul.SharedState .Yul} {store : VarStore},
+        ACond (👌 s₀) ≠ ⟨0⟩ →
+        ABody (👌 s₀) (.Checkpoint (.Continue sharedState store)) →
+        APost (🧟 (.Checkpoint (.Continue sharedState store))) s₃ →
+        AFor (s₃.overwrite? s₀) s₅ →
+        AFor s₀ (s₅.overwrite? s₀))
+    (AStepOk :
+      ∀ {s₀ s₃ s₅ : State} {sharedState : EvmYul.SharedState .Yul} {store : VarStore},
+        ACond (👌 s₀) ≠ ⟨0⟩ →
+        ABody (👌 s₀) (.Ok sharedState store) →
+        APost (🧟 (.Ok sharedState store)) s₃ →
+        AFor (s₃.overwrite? s₀) s₅ →
+        AFor s₀ (s₅.overwrite? s₀)) :
+    Spec (LoopConcrete ABody APost ACond fuel) s₀ s₉ →
+      Spec AFor s₀ s₉ := by
+  unfold Spec
+  induction fuel using Nat.strong_induction_on generalizing s₀ s₉ with
+  | h fuel ih =>
+      intro hconcrete
+      cases fuel with
+      | zero =>
+          simp [LoopConcrete] at hconcrete
+      | succ fuel₁ =>
+          cases fuel₁ with
+          | zero =>
+              simp [LoopConcrete] at hconcrete
+          | succ fuel₂ =>
+              cases fuel₂ with
+              | zero =>
+                  simp [LoopConcrete] at hconcrete
+              | succ fuel' =>
+                  simp [LoopConcrete] at hconcrete
+                  by_cases hzero : ACond (👌 s₀) = ⟨0⟩
+                  · simp [hzero] at hconcrete
+                    exact AZero hzero hconcrete
+                  · simp [hzero] at hconcrete
+                    rcases hconcrete with ⟨s₂, hbody, htail⟩
+                    cases s₂ with
+                    | OutOfFuel =>
+                        rw [htail]
+                        exact AOutOfFuel hzero hbody
+                    | Checkpoint jump =>
+                        cases jump with
+                        | Break sharedState store =>
+                            rw [htail]
+                            exact ABreak hzero hbody
+                        | Leave sharedState store =>
+                            rw [htail]
+                            exact ALeave hzero hbody
+                        | Continue sharedState store =>
+                            rcases htail with ⟨s₃, hpost, s₅, hrec, hs₉⟩
+                            subst s₉
+                            have hfor : AFor (s₃.overwrite? s₀) s₅ :=
+                              ih fuel' (Nat.lt_add_of_pos_right (by decide : 0 < 3)) hrec
+                            exact AStepContinue hzero hbody hpost hfor
+                    | Ok sharedState store =>
+                        rcases htail with ⟨s₃, hpost, s₅, hrec, hs₉⟩
+                        subst s₉
+                        have hfor : AFor (s₃.overwrite? s₀) s₅ :=
+                          ih fuel' (Nat.lt_add_of_pos_right (by decide : 0 < 3)) hrec
+                        exact AStepOk hzero hbody hpost hfor
+
+theorem loop_exec_implies_concrete
+    (cond : Expr) (post body : List Stmt) (codeOverride : Option YulContract)
+    (ACond : State → Ast.Literal) (APost ABody : State → State → Prop)
+    {fuel : Nat} {s₀ s₉ : State}
+    (hcond :
+      ∀ {fuel : Nat} {s₀ s₁ : State} {condLit : Ast.Literal},
+        eval fuel cond codeOverride s₀ = .ok (s₁, condLit) →
+          s₁ = s₀ ∧ condLit = ACond s₀)
+    (hpost :
+      ∀ {fuel : Nat} {s₀ s₉ : State},
+        exec fuel (.Block post) codeOverride s₀ = .ok s₉ → Spec APost s₀ s₉)
+    (hbody :
+      ∀ {fuel : Nat} {s₀ s₉ : State},
+        exec fuel (.Block body) codeOverride s₀ = .ok s₉ → Spec ABody s₀ s₉) :
+    exec fuel (.For cond post body) codeOverride s₀ = .ok s₉ →
+      Spec (LoopConcrete ABody APost ACond fuel) s₀ s₉ := by
+  unfold Spec
+  induction fuel using Nat.strong_induction_on generalizing s₀ s₉ with
+  | h fuel ih =>
+      intro hcode
+      cases fuel with
+      | zero =>
+          simp [exec] at hcode
+      | succ loopFuel =>
+          cases loopFuel with
+          | zero =>
+              simp [exec, loop] at hcode
+          | succ loopFuel =>
+              cases loopFuel with
+              | zero =>
+                  simp [exec, loop] at hcode
+              | succ fuel' =>
+                  simp [exec, loop] at hcode
+                  generalize hcondExec :
+                      eval fuel' cond codeOverride (👌 s₀) = condResult at hcode
+                  cases condResult with
+                  | error e =>
+                      simp at hcode
+                  | ok condResult =>
+                      cases condResult with
+                      | mk s₁ condLit =>
+                          rcases hcond hcondExec with ⟨hs₁, hcondLit⟩
+                          subst s₁
+                          subst condLit
+                          simp [LoopConcrete]
+                          by_cases hzero : ACond (👌 s₀) = ⟨0⟩
+                          · simp [hzero] at hcode ⊢
+                            exact hcode.symm
+                          · simp [hzero] at hcode ⊢
+                            generalize hbodyExec :
+                                exec fuel' (.Block body) codeOverride (👌 s₀) = bodyResult at hcode
+                            cases bodyResult with
+                            | error e =>
+                                simp at hcode
+                            | ok s₂ =>
+                                have hbodySpec : Spec ABody (👌 s₀) s₂ := hbody hbodyExec
+                                refine ⟨s₂, hbodySpec, ?_⟩
+                                cases s₂ with
+                                | OutOfFuel =>
+                                    simp at hcode ⊢
+                                    exact hcode.symm
+                                | Checkpoint jump =>
+                                    cases jump with
+                                    | Break sharedState store =>
+                                        simp at hcode ⊢
+                                        exact hcode.symm
+                                    | Leave sharedState store =>
+                                        simp at hcode ⊢
+                                        exact hcode.symm
+                                    | Continue sharedState store =>
+                                        simp at hcode
+                                        generalize hpostExec :
+                                            exec fuel' (.Block post) codeOverride
+                                              (🧟 (State.Checkpoint (.Continue sharedState store))) =
+                                              postResult at hcode
+                                        cases postResult with
+                                        | error e =>
+                                            simp at hcode
+                                        | ok s₃ =>
+                                            simp at hcode
+                                            have hpostSpec :
+                                                Spec APost
+                                                  (🧟 (State.Checkpoint (.Continue sharedState store))) s₃ :=
+                                              hpost hpostExec
+                                            generalize hrecExec :
+                                                exec fuel' (.For cond post body) codeOverride
+                                                  (s₃.overwrite? s₀) = recResult at hcode
+                                            cases recResult with
+                                            | error e =>
+                                                simp at hcode
+                                            | ok s₅ =>
+                                                have hrec :
+                                                    Spec (LoopConcrete ABody APost ACond fuel')
+                                                      (s₃.overwrite? s₀) s₅ :=
+                                                  ih fuel' (Nat.lt_add_of_pos_right (by decide : 0 < 3))
+                                                    hrecExec
+                                                simp at hcode
+                                                exact ⟨s₃, hpostSpec, s₅, hrec, hcode.symm⟩
+                                | Ok sharedState store =>
+                                    simp at hcode
+                                    generalize hpostExec :
+                                        exec fuel' (.Block post) codeOverride
+                                          (🧟 (State.Ok sharedState store)) = postResult at hcode
+                                    cases postResult with
+                                    | error e =>
+                                        simp at hcode
+                                    | ok s₃ =>
+                                        simp at hcode
+                                        have hpostSpec :
+                                            Spec APost (🧟 (State.Ok sharedState store)) s₃ :=
+                                          hpost hpostExec
+                                        generalize hrecExec :
+                                            exec fuel' (.For cond post body) codeOverride
+                                              (s₃.overwrite? s₀) = recResult at hcode
+                                        cases recResult with
+                                        | error e =>
+                                            simp at hcode
+                                        | ok s₅ =>
+                                            have hrec :
+                                                Spec (LoopConcrete ABody APost ACond fuel')
+                                                  (s₃.overwrite? s₀) s₅ :=
+                                              ih fuel' (Nat.lt_add_of_pos_right (by decide : 0 < 3))
+                                                hrecExec
+                                            simp at hcode
+                                            exact ⟨s₃, hpostSpec, s₅, hrec, hcode.symm⟩
+
+theorem loop_exec_implies_spec
+    (cond : Expr) (post body : List Stmt) (codeOverride : Option YulContract)
+    (ACond : State → Ast.Literal) (APost ABody AFor : State → State → Prop)
+    {fuel : Nat} {s₀ s₉ : State}
+    (hcond :
+      ∀ {fuel : Nat} {s₀ s₁ : State} {condLit : Ast.Literal},
+        eval fuel cond codeOverride s₀ = .ok (s₁, condLit) →
+          s₁ = s₀ ∧ condLit = ACond s₀)
+    (hpost :
+      ∀ {fuel : Nat} {s₀ s₉ : State},
+        exec fuel (.Block post) codeOverride s₀ = .ok s₉ → Spec APost s₀ s₉)
+    (hbody :
+      ∀ {fuel : Nat} {s₀ s₉ : State},
+        exec fuel (.Block body) codeOverride s₀ = .ok s₉ → Spec ABody s₀ s₉)
+    (AZero :
+      ∀ {s₀ s₉ : State},
+        ACond (👌 s₀) = ⟨0⟩ →
+        s₉ = (👌 s₀).overwrite? s₀ →
+        AFor s₀ s₉)
+    (AOutOfFuel :
+      ∀ {s₀ : State},
+        ACond (👌 s₀) ≠ ⟨0⟩ →
+        ABody (👌 s₀) .OutOfFuel →
+        AFor s₀ (State.OutOfFuel.overwrite? s₀))
+    (ABreak :
+      ∀ {s₀ : State} {sharedState : EvmYul.SharedState .Yul} {store : VarStore},
+        ACond (👌 s₀) ≠ ⟨0⟩ →
+        ABody (👌 s₀) (.Checkpoint (.Break sharedState store)) →
+        AFor s₀ ((State.Checkpoint (.Break sharedState store)).reviveJump.overwrite? s₀))
+    (ALeave :
+      ∀ {s₀ : State} {sharedState : EvmYul.SharedState .Yul} {store : VarStore},
+        ACond (👌 s₀) ≠ ⟨0⟩ →
+        ABody (👌 s₀) (.Checkpoint (.Leave sharedState store)) →
+        AFor s₀ ((State.Checkpoint (.Leave sharedState store)).overwrite? s₀))
+    (AStepContinue :
+      ∀ {s₀ s₃ s₅ : State} {sharedState : EvmYul.SharedState .Yul} {store : VarStore},
+        ACond (👌 s₀) ≠ ⟨0⟩ →
+        ABody (👌 s₀) (.Checkpoint (.Continue sharedState store)) →
+        APost (🧟 (.Checkpoint (.Continue sharedState store))) s₃ →
+        AFor (s₃.overwrite? s₀) s₅ →
+        AFor s₀ (s₅.overwrite? s₀))
+    (AStepOk :
+      ∀ {s₀ s₃ s₅ : State} {sharedState : EvmYul.SharedState .Yul} {store : VarStore},
+        ACond (👌 s₀) ≠ ⟨0⟩ →
+        ABody (👌 s₀) (.Ok sharedState store) →
+        APost (🧟 (.Ok sharedState store)) s₃ →
+        AFor (s₃.overwrite? s₀) s₅ →
+        AFor s₀ (s₅.overwrite? s₀)) :
+    exec fuel (.For cond post body) codeOverride s₀ = .ok s₉ →
+      Spec AFor s₀ s₉ := by
+  intro hcode
+  exact loopConcrete_implies_spec ACond APost ABody AFor
+    AZero AOutOfFuel ABreak ALeave AStepContinue AStepOk
+    (loop_exec_implies_concrete cond post body codeOverride ACond APost ABody
+      hcond hpost hbody hcode)
 
 theorem pureFunctionCallVC_intro
     {AFunc : Nat → State → State → Prop} {f : FunctionDefinition}
@@ -198,6 +532,7 @@ theorem functionCallSummary_of_exec_block_prefix_let_call
     {args : List Ast.Literal} {vars : List Identifier}
     {argFuel : Nat} {codeOverride : Option YulContract} {s₀ sPrefix sCall s₉ : State}
     (hprefix : exec (.succ (.succ argFuel)) pref codeOverride s₀ = .ok sPrefix)
+    (hprefixOk : State.isOk sPrefix)
     (hresolve : ResolvedFunction codeOverride sCall name f)
     (habs :
       ∀ {bodyFuel : Nat} {sBody : State},
@@ -207,15 +542,20 @@ theorem functionCallSummary_of_exec_block_prefix_let_call
     exec (.succ (.succ (.succ argFuel))) (.Block [pref, .Let vars (some (.Call (Sum.inr name) argExprs))]) codeOverride s₀ = .ok s₉ →
     FunctionCallSummary AFunc f args vars sCall s₉ := by
   intro hexec
-  simp [exec, hprefix, heval] at hexec
-  generalize hcall : execCall argFuel name vars codeOverride (.ok (sCall, args)) = result at hexec
-  cases result with
-  | error e =>
-      simp at hexec
-  | ok sResult =>
-      simp at hexec
-      cases hexec
-      exact functionCallSummary_of_execCall_ok hresolve habs hcall
+  cases sPrefix with
+  | Ok sharedState store =>
+      simp [exec, hprefix, heval] at hexec
+      generalize hcall : execCall argFuel name vars codeOverride (.ok (sCall, args)) = result at hexec
+      cases result with
+      | error e =>
+          simp at hexec
+      | ok sResult =>
+          cases sResult <;> simp at hexec <;> cases hexec <;>
+            exact functionCallSummary_of_execCall_ok hresolve habs hcall
+  | OutOfFuel =>
+      cases hprefixOk
+  | Checkpoint jump =>
+      cases hprefixOk
 
 theorem function_exec_implies_bodyExact
     {f : FunctionDefinition} {codeOverride : Option YulContract}

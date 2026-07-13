@@ -12,8 +12,11 @@ open EvmYul.Yul.Ast
 open EvmYul.Yul.Notation
 open EvmYul.Yul.ReasoningPrinciple
 
+\<resolutions>
+
 def Spec_\<statement_name> (fuel : Nat) (codeOverride : Option YulContract) (s₀ s₉ : State) : Prop :=
-  sorry
+  Resolutions_\<statement_name> codeOverride →
+    sorry
 
 theorem \<statement_name>_vc_implies_spec {fuel : Nat} {codeOverride : Option YulContract} {s₀ s₉ : State} :
     VC_\<statement_name> fuel codeOverride s₀ s₉ →
