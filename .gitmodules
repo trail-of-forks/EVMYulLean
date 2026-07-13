@@ -1,3 +1,6 @@
 [submodule "EthereumTests"]
 	path = EthereumTests
 	url = https://github.com/ethereum/tests.git
+[submodule "solidity"]
+	path = solidity
+	url = https://github.com/argotorg/solidity

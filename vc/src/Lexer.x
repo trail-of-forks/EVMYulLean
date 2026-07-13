@@ -35,6 +35,7 @@ tokens :-
   0x [0-9a-fA-F]+                   { \_ s -> TokenHex s }
   [0-9]+                            { \_ s -> TokenDecimal s }
   "///" .*$                         { \_ s -> TokenInlineComment s }
+  "//" .*$                          ;
   "/**" [.]* "*/"                   ;
 
 {
