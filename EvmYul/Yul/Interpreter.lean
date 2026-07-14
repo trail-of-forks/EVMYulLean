@@ -60,6 +60,53 @@ def buildContractCallEmptyReturnState (s₀ : State) (accountMap₁ : Option (Ac
                                              accountMap := accountMap₁.getD s₀.toSharedState.accountMap }
       .ok (.Ok sharedState₁ varstore, [v])
 
+def objectDataExprName? : Expr → Option Identifier
+  | .Var name => some name
+  | _ => none
+
+def objectDataOffset : Identifier → UInt256
+  | "main" => .ofNat 0x6e
+  | "sub" => .ofNat 0x70c
+  | _ => .ofNat 0
+
+def objectDataSize : Identifier → UInt256
+  | "main" => .ofNat 0xb64
+  | "sub" => .ofNat 0x109
+  | _ => .ofNat 0
+
+def objectDataBytes : ByteArray :=
+  "000000000000codecode".toUTF8
+
+def objectDataCopy (s : State) (mstart dstart size : UInt256) : State :=
+  let mState := s.toMachineState
+  let mState' :=
+    writeBytes objectDataBytes dstart.toNat mState mstart.toNat size.toNat
+  let mState' :=
+    { mState' with
+      activeWords := .ofNat (MachineState.M mState.activeWords.toNat mstart.toNat size.toNat)
+    }
+  s.setMachineState mState'
+
+def evalObjectDataBuiltin? (name : YulFunctionName) (args : List Expr) (s : State) :
+    Option (Except Yul.Exception (State × Literal)) :=
+  match name, args with
+  | "dataoffset", [arg] =>
+      some <| .ok (s, objectDataOffset (Option.getD (objectDataExprName? arg) ""))
+  | "datasize", [arg] =>
+      some <| .ok (s, objectDataSize (Option.getD (objectDataExprName? arg) ""))
+  | _, _ => none
+
+def execObjectDataBuiltin? (name : YulFunctionName) (vars : List Identifier) :
+    Except Yul.Exception (State × List Literal) → Option (Except Yul.Exception State)
+  | .error e => some (.error e)
+  | .ok (s, args) =>
+      match name, vars, args with
+      | "datacopy", [], [mstart, dstart, size] =>
+          some <| .ok (objectDataCopy s mstart dstart size)
+      | "datacopy", _, _ =>
+          some <| .error .InvalidArguments
+      | _, _, _ => none
+
 mutual
 
 def primCall (fuel : ℕ) (s₀ : State) (prim : Operation .Yul) (args : List Literal) : Except Yul.Exception (State × List Literal) :=
@@ -546,7 +593,10 @@ def primCall (fuel : ℕ) (s₀ : State) (prim : Operation .Yul) (args : List Li
 
         | .Call (Sum.inl prim) args => evalPrimCall fuel' prim (reverse' (evalArgs fuel' args.reverse codeOverride s))
         | .Call (Sum.inr yulFunctionName) args        =>
-          evalCall fuel' yulFunctionName codeOverride (reverse' (evalArgs fuel' args.reverse codeOverride s))
+          match evalObjectDataBuiltin? yulFunctionName args s with
+          | .some result => result
+          | .none =>
+              evalCall fuel' yulFunctionName codeOverride (reverse' (evalArgs fuel' args.reverse codeOverride s))
         | .Var id             => .ok (s, s[id]!)
         | .Lit val            => .ok (s, val)
 
@@ -576,7 +626,10 @@ def primCall (fuel : ℕ) (s₀ : State) (prim : Operation .Yul) (args : List Li
                   | .Call (Sum.inl prim) args =>
                     execPrimCall fuel' prim vars (reverse' (evalArgs fuel' args.reverse codeOverride s))
                   | .Call (Sum.inr yulFunctionName) args =>
-                    execCall fuel' yulFunctionName vars codeOverride (reverse' (evalArgs fuel' args.reverse codeOverride s))
+                    let argsResult := reverse' (evalArgs fuel' args.reverse codeOverride s)
+                    match execObjectDataBuiltin? yulFunctionName vars argsResult with
+                    | .some result => result
+                    | .none => execCall fuel' yulFunctionName vars codeOverride argsResult
                   | .Var identifier => .ok (s.insert vars.head! s[identifier]!) -- It should be safe to call head! here if the Yul code is parsed correctly.
                   | .Lit literal => .ok (s.insert vars.head! literal) -- It should be safe to call head! here if the Yul code is parsed correctly.
 
@@ -595,7 +648,11 @@ def primCall (fuel : ℕ) (s₀ : State) (prim : Operation .Yul) (args : List Li
         | .ExprStmtCall expr =>
              match expr with
                | .Call (Sum.inl prim) args => execPrimCall fuel' prim [] (reverse' (evalArgs fuel' args.reverse codeOverride s))
-               | .Call (Sum.inr f) args => execCall fuel' f [] codeOverride (reverse' (evalArgs fuel' args.reverse codeOverride s))
+               | .Call (Sum.inr f) args =>
+                  let argsResult := reverse' (evalArgs fuel' args.reverse codeOverride s)
+                  match execObjectDataBuiltin? f [] argsResult with
+                  | .some result => result
+                  | .none => execCall fuel' f [] codeOverride argsResult
                | _ => .error .InvalidExpression -- This case should never occur because we cannot have literals or variables on the RHS, as noted above.
 
         | .Switch cond cases' default' =>

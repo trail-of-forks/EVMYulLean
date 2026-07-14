@@ -1,6 +1,7 @@
 {
 module Lexer (Token (..), lexer) where
 
+import Data.Char (isHexDigit, toLower)
 import Data.List (dropWhileEnd)
 }
 
@@ -30,6 +31,7 @@ tokens :-
   false                             { \_ _ -> TokenFalse }
   object                            { \_ _ -> TokenObject }
   code                              { \_ _ -> TokenCode }
+  hex \" ([0-9a-fA-F_] | '\\' .)* \" { \_ s -> TokenHex (hexStringLiteralToWord s) }
   [a-zA-Z\_\$]+ [a-zA-Z\_\$0-9\.]*  { \_ s -> TokenIdentifier s}
   \" ([^\"\r\n\\] | '\\' .)* \"     { \_ s -> TokenString (trimQuotes s) }
   0x [0-9a-fA-F]+                   { \_ s -> TokenHex s }
@@ -44,6 +46,12 @@ lexer = alexScanTokens
 
 trimQuotes :: String -> String
 trimQuotes = dropWhileEnd (== '"') . dropWhile (== '"')
+
+hexStringLiteralToWord :: String -> String
+hexStringLiteralToWord s =
+  "0x" ++ digits ++ replicate (max 0 (64 - length digits)) '0'
+  where
+    digits = map toLower . filter isHexDigit . trimQuotes . drop 3 $ s
 
 data Token
       = TokenLCurl

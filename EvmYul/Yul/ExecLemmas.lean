@@ -6,6 +6,13 @@ namespace Yul
 open Ast
 
 @[simp]
+theorem ok_match_ok_else_self (s : State) :
+    (match s with
+     | .Ok _ _ => Except.ok s
+     | _ => Except.ok s) = (Except.ok s : Except Exception State) := by
+  cases s <;> rfl
+
+@[simp]
 theorem step_yul_add (s : State) (a b : UInt256) :
     step (Operation.ADD : Operation .Yul) none s [a, b] =
       .ok (s, some (UInt256.add a b)) := by
@@ -155,7 +162,10 @@ theorem exec_block_cons_succ
     exec fuel.succ (.Block (stmt :: stmts)) codeOverride s =
       match exec fuel stmt codeOverride s with
       | .error e => .error e
-      | .ok s₁ => exec fuel (.Block stmts) codeOverride s₁ := by
+      | .ok s₁ =>
+          match s₁ with
+          | .Ok _ _ => exec fuel (.Block stmts) codeOverride s₁
+          | _ => .ok s₁ := by
   simp [exec]
   rfl
 

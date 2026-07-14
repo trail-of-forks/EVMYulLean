@@ -50,8 +50,8 @@ Objects     : {- empty -}                 { [] }
 Object      : inlcomment object str '{' Code InnerObject '}'          { Object $1 $3 $5 $6 }
             |            object str '{' Code InnerObject '}'          { Object "" $2 $4 $5 }
 
-InnerObject : inlcomment object str '{' Code ident str ident str '}'  { InnerObject $1 $3 $5 }
-            |            object str '{' Code ident str ident str '}'  { InnerObject "" $2 $4 }
+InnerObject : inlcomment object str '{' Code ident str DataLiteral '}'  { InnerObject $1 $3 $5 }
+            |            object str '{' Code ident str DataLiteral '}'  { InnerObject "" $2 $4 }
 
 Code        : code TopLvlBlock            { $2 }
 
@@ -150,6 +150,9 @@ Literal     : NumberLiteral               { Number $1 }
 
 NumberLiteral : hex                       { (read $1) }
               | dec                       { (read $1) }
+
+DataLiteral : str                         { $1 }
+            | hex                         { $1 }
 
 {
 parseError :: [Token] -> a

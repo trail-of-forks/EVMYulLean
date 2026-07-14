@@ -125,15 +125,27 @@ def ResolvedFunctionInCode
     (code : YulContract) (name : YulFunctionName) (f : FunctionDefinition) : Prop :=
   code.functions.lookup name = some f
 
+def OrdinaryFunctionName (name : YulFunctionName) : Prop :=
+  name ≠ "datacopy" ∧ name ≠ "dataoffset" ∧ name ≠ "datasize"
+
 def ResolvedFunction
     (codeOverride : Option YulContract) (s : State)
     (name : YulFunctionName) (f : FunctionDefinition) : Prop :=
-  match codeOverride with
-  | some code => ResolvedFunctionInCode code name f
-  | none =>
-      ∃ account,
-        s.sharedState.accountMap.find? s.executionEnv.codeOwner = some account ∧
-        ResolvedFunctionInCode account.code name f
+  OrdinaryFunctionName name ∧
+    match codeOverride with
+    | some code => ResolvedFunctionInCode code name f
+    | none =>
+        ∃ account,
+          s.sharedState.accountMap.find? s.executionEnv.codeOwner = some account ∧
+          ResolvedFunctionInCode account.code name f
+
+theorem execObjectDataBuiltin?_none_of_ordinary
+    {name : YulFunctionName} {vars : List Identifier} {args : List Ast.Literal} {s : State}
+    (hordinary : OrdinaryFunctionName name) :
+    execObjectDataBuiltin? name vars (.ok (s, args)) = none := by
+  rcases hordinary with ⟨hdatacopy, _, _⟩
+  cases name <;> simp [execObjectDataBuiltin?] at hdatacopy ⊢
+  split <;> simp_all
 
 def PureFunctionCallVC
     (AFunc : Nat → State → State → Prop) (f : FunctionDefinition)
@@ -459,6 +471,7 @@ theorem functionCallSummary_of_call
       simp [call] at hcall
   | succ bodyFuel =>
       simp [call, ResolvedFunction, ResolvedFunctionInCode] at hcall hresolve
+      rcases hresolve with ⟨hordinary, hresolve⟩
       split at hcall
       · contradiction
       next account haccount =>
@@ -493,6 +506,9 @@ theorem functionCallSummary_of_execCall_ok
     execCall fuel name vars codeOverride (.ok (s₀, args)) = .ok s₉ →
     FunctionCallSummary AFunc f args vars s₀ s₉ := by
   intro hexec
+  have hobject :
+      execObjectDataBuiltin? name vars (.ok (s₀, args)) = none :=
+    execObjectDataBuiltin?_none_of_ordinary hresolve.1
   cases fuel with
   | zero =>
       simp [execCall] at hexec
@@ -523,7 +539,11 @@ theorem functionCallSummary_of_exec_let_call
     exec (.succ fuel) (.Let vars (some (.Call (Sum.inr name) argExprs))) codeOverride s₀ = .ok s₉ →
     FunctionCallSummary AFunc f args vars sCall s₉ := by
   intro hexec
+  have hobject :
+      execObjectDataBuiltin? name vars (.ok (sCall, args)) = none :=
+    execObjectDataBuiltin?_none_of_ordinary hresolve.1
   simp [exec, heval] at hexec
+  rw [hobject] at hexec
   exact functionCallSummary_of_execCall_ok hresolve habs hexec
 
 theorem functionCallSummary_of_exec_block_prefix_let_call
@@ -545,6 +565,10 @@ theorem functionCallSummary_of_exec_block_prefix_let_call
   cases sPrefix with
   | Ok sharedState store =>
       simp [exec, hprefix, heval] at hexec
+      have hobject :
+          execObjectDataBuiltin? name vars (.ok (sCall, args)) = none :=
+        execObjectDataBuiltin?_none_of_ordinary hresolve.1
+      rw [hobject] at hexec
       generalize hcall : execCall argFuel name vars codeOverride (.ok (sCall, args)) = result at hexec
       cases result with
       | error e =>

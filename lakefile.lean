@@ -76,3 +76,6 @@ lean_exe «conform» where
 
 lean_exe «yulSemanticsTests» where
   root := `EvmYul.Yul.YulSemanticsTests.Main
+
+lean_exe «solidityYulInterpreterTests» where
+  root := `EvmYul.Yul.SolidityYulInterpreterTests.Main

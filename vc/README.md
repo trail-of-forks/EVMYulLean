@@ -49,3 +49,23 @@ Solidity's Yul corpus. At the time this harness was added, 38 of the 51 top-leve
 `yulInterpreterTests/*.yul` fixtures generated successfully; unsupported
 fixtures are reported as `UNSUP`, while regressions in the expected-pass set are
 reported as `REGRESS` and cause a nonzero exit.
+
+To also check the generated fixtures with the EVMYulLean Yul interpreter, run:
+
+```sh
+sh vc/test-solidity-yul-interpreter-semantics.sh
+```
+
+That harness first regenerates the corpus modules, then runs the
+`solidityYulInterpreterTests` Lake executable. The executable imports all
+generated Lean modules for the VC-generation fixtures, runs the ones that can
+safely execute, and checks normal termination, expected interpreter errors, or
+fixture-specific storage effects.
+
+The `datacopy.yul`, `dataoffset.yul`, `datasize.yul`, and
+`long_object_name.yul` fixtures are covered by a small object-data model for
+`datacopy`, `dataoffset`, and `datasize`. That model is sufficient for these
+corpus fixtures; it is not a complete Yul object linker or bytecode-layout
+model. A few fixtures are imported but skipped at runtime because the current
+interpreter path can allocate unbounded memory or reach missing-function paths
+that can trigger Lean panics.

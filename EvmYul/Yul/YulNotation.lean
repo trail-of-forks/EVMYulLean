@@ -179,29 +179,38 @@ def parseFunction : String → PrimOp ⊕ Identifier
   | "blockhash" => .inl .BLOCKHASH
   | "coinbase" => .inl .COINBASE
   | "timestamp" => .inl .TIMESTAMP
+  | "basefee" => .inl .BASEFEE
+  | "blobhash" => .inl .BLOBHASH
+  | "blobbasefee" => .inl .BLOBBASEFEE
   | "gaslimit" => .inl .GASLIMIT
   | "chainid" => .inl .CHAINID
   | "selfbalance" => .inl .SELFBALANCE
   | "mload" => .inl .MLOAD
   | "mstore" => .inl .MSTORE
+  | "mstore8" => .inl .MSTORE8
   | "sload" => .inl .SLOAD
   | "sstore" => .inl .SSTORE
   | "msize" => .inl .MSIZE
   | "gas" => .inl .GAS
+  | "tload" => .inl .TLOAD
+  | "tstore" => .inl .TSTORE
+  | "mcopy" => .inl .MCOPY
   | "pop" => .inl .POP
   | "revert" => .inl .REVERT
   | "return" => .inl .RETURN
+  | "create" => .inl .CREATE
   | "call" => .inl .CALL
   | "staticcall" => .inl .STATICCALL
   | "delegatecall" => .inl .DELEGATECALL
   | "callcode" => .inl .CALLCODE
   -- | "loadimmutable" => .inl  .LOADI
-  -- | "log0" => .inl .LOG0
+  | "log0" => .inl .LOG0
   | "log1" => .inl .LOG1
   | "log2" => .inl .LOG2
   | "log3" => .inl .LOG3
   | "log4" => .inl .LOG4
   | "number" => .inl .NUMBER
+  | "selfdestruct" => .inl .SELFDESTRUCT
   | userF => .inr userF
 
 partial def translateExpr (expr : TSyntax `expr) : TermElabM Term :=
@@ -322,6 +331,13 @@ partial def translateStmt (stmt : TSyntax `stmt) : TermElabM Term :=
     let post' ← post.mapM translateStmt
     let body' ← body.mapM translateStmt
     `(Stmt.For $cond' [$post',*] [$body',*])
+
+  | `(stmt| for {$init:stmt*} $cond:expr {$post:stmt*} {$body:stmt*}) => do
+    let init' ← init.mapM translateStmt
+    let cond' ← translateExpr cond
+    let post' ← post.mapM translateStmt
+    let body' ← body.mapM translateStmt
+    `(Stmt.Block ([$init',*] ++ [Stmt.For $cond' [$post',*] [$body',*]]))
 
   -- Break
   | `(stmt| break) => `(Stmt.Break)
